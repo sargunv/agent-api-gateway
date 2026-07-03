@@ -30,8 +30,8 @@ The image runs as root and defaults to `/auth.json`, so rootless engines map the
 process to your uid (the owner of the `0600` auth file) with no extra flags.
 `podman` works the same; replace `docker` with `podman`.
 
-To expose on all interfaces, pass `--addr 0.0.0.0:8080` and map the port without
-the `127.0.0.1:` prefix.
+To expose on all interfaces, map the port without the `127.0.0.1:` prefix
+(`-p 8080:8080`).
 
 ## Run a binary
 
