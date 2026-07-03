@@ -66,7 +66,8 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository }}
           VERSION: ${{ github.ref_name }}
         run: |
-          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          version="${VERSION#v}"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Attest release image
@@ -111,12 +112,13 @@ jobs:
           VERSION: ${{ github.ref_name }}
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
+          version="${VERSION#v}"
           {
             if [[ "$GITHUB_REF" == refs/tags/* ]]; then
               echo "## Release published"
               echo
               echo "- Version: \`$VERSION\`"
-              echo "- Docker image: \`$IMAGE:$VERSION\`"
+              echo "- Docker image: \`$IMAGE:$version\`"
               echo "- Docker image alias: \`$IMAGE:latest\`"
               echo "- GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION"
             else
