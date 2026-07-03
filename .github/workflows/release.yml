@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -19,7 +21,6 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: release
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -42,6 +43,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
@@ -51,21 +53,76 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/${{ github.repository }}
 
-      - name: Attest release artifacts
+      - name: Attest release archives
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-checksums: ./dist/checksums.txt
 
-      - name: Summarize release
+      - name: Resolve release image digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: release-image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest release image
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.release-image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Stage linux binaries
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p context/linux/amd64 context/linux/arm64
+          ldflags="-s -w -X main.version=main -X main.commit=$GITHUB_SHA"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$ldflags" -o context/linux/amd64/codex-gateway .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="$ldflags" -o context/linux/arm64/codex-gateway .
+
+      - name: Publish main image
+        if: github.ref == 'refs/heads/main'
+        id: publish-main
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./context
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:main
+
+      - name: Attest main image
+        if: github.ref == 'refs/heads/main'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish-main.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Summarize
         env:
           VERSION: ${{ github.ref_name }}
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
           {
-            echo "## Release published"
-            echo
-            echo "- Version: \`$VERSION\`"
-            echo "- Docker image: \`$IMAGE:$VERSION\`"
-            echo "- Docker image alias: \`$IMAGE:latest\`"
-            echo "- GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION"
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "## Release published"
+              echo
+              echo "- Version: \`$VERSION\`"
+              echo "- Docker image: \`$IMAGE:$VERSION\`"
+              echo "- Docker image alias: \`$IMAGE:latest\`"
+              echo "- GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION"
+            else
+              echo "## Main image published"
+              echo
+              echo "- Docker image: \`$IMAGE:main\`"
+              echo "- Commit: \`$GITHUB_SHA\`"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

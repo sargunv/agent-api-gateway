@@ -28,6 +28,7 @@ jobs:
       - run: go build ./...
 
   release-smoke:
+    if: github.event_name == 'pull_request'
     needs: [check]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
